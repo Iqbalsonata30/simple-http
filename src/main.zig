@@ -10,18 +10,21 @@ pub fn main() !void {
     };
     defer posix.close(listener);
 
-    _ = posix.bind(listener, @ptrCast(&address), address.getOsSockLen()) catch |err| {
+    try posix.setsockopt(listener, posix.SOL.SOCKET, posix.SO.REUSEADDR, &std.mem.toBytes(@as(c_int, 1)));
+
+    posix.bind(listener, @ptrCast(&address), address.getOsSockLen()) catch |err| {
         std.debug.print("failed to bind socket: {?}\n", .{err});
         return err;
     };
-    _ = posix.listen(listener, 10) catch |err| {
+    posix.listen(listener, 10) catch |err| {
         std.debug.print("failed to listen socket: {?}\n", .{err});
         return err;
     };
-
     std.debug.print("server listening on {any}\n", .{address.in});
+
     var client_address: net.Address = undefined;
     var client_address_len: posix.socklen_t = @sizeOf(net.Address);
+
     while (true) {
         const conn = posix.accept(listener, @ptrCast(&client_address), &client_address_len, 0) catch |err| {
             std.debug.print("failed to accept connection: {?}\n", .{err});
@@ -35,16 +38,36 @@ pub fn main() !void {
 
 fn handleConnection(conn: posix.socket_t) !void {
     std.debug.print("client connected\n", .{});
-    const response = "GET / HTTP/1.1 200 OK\r\n" ++
-        "Content-Type: text/html\r\n" ++
-        "Content-Length: 12\r\n" ++
-        "Connection: keep-alive \r\n\r\n" ++
-        "<h1>Hello World</h1>";
-    const written_size = try posix.write(conn, response);
-    std.debug.print("written size : {any}\n", .{written_size});
+    var buf: [1024]u8 = undefined;
+    const data_received = posix.recv(conn, &buf, 0) catch |err| {
+        std.debug.print("error read message : {?} \n", .{err});
+        return err;
+    };
+    var it = std.mem.splitScalar(u8, buf[0..data_received], '\n');
+    const req = it.first();
+    const header = readHeader(req);
+    std.debug.print("method : {s}\npath : {s}\nproto version : {s}\n", .{ header.method, header.path, header.protoVersion });
 }
-//var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-// defer arena.deinit();
-// const allocator = arena.allocator();
-// try allocator.alloc(posix.socket_t, client_sock);
-// defer allocator.free(memory: anytype)
+
+fn readHeader(req_header: []const u8) Header {
+    var it = std.mem.splitScalar(u8, req_header, ' ');
+    const method = it.first();
+    const path = it.next().?;
+    const proto_version = it.next().?;
+
+    return Header{
+        .method = method,
+        .path = path,
+        .protoVersion = proto_version,
+    };
+}
+
+const Header = struct {
+    method: []const u8,
+    path: []const u8,
+    protoVersion: []const u8,
+};
+
+// i don't know how much the number of connections will be served.
+// So,stores the heap in the stack is a bad idea.
+// i need to allocate some memory :)
