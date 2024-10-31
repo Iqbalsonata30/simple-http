@@ -45,14 +45,6 @@ pub fn main() !void {
 fn handleConnection(conn: posix.socket_t, allocator: Allocator) !void {
     std.debug.print("client connected\n", .{});
     var buf: [1024]u8 = undefined;
-    const response = "<h1>Hi, Your method is GET and Path /</h1>";
-
-    const response_get = try std.fmt.allocPrint(allocator, "HTTP/1.1 200 OK\r\n" ++
-        "Content-Type: text/html\r\n" ++
-        "Content-Length: {d}\r\n" ++
-        "\r\n" ++
-        "{s}", .{ response.len, response });
-    defer allocator.free(response_get);
 
     const data_received = posix.recv(conn, &buf, 0) catch |err| {
         std.debug.print("error read message : {?} \n", .{err});
@@ -61,6 +53,15 @@ fn handleConnection(conn: posix.socket_t, allocator: Allocator) !void {
     var req = std.mem.splitScalar(u8, buf[0..data_received], '\n');
     const header = Header.parseHeader(req.first());
     const method = header.method;
+    const protocol_version = header.protocolVersion;
+
+    const response = "<h1>Hi, Your method is GET and Path /</h1>";
+    const response_get = try std.fmt.allocPrint(allocator, "{s} 200 OK\r\n" ++
+        "Content-Type: text/html\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "\r\n" ++
+        "{s}", .{ protocol_version, response.len, response });
+    defer allocator.free(response_get);
 
     if (std.mem.eql(u8, method, "GET")) {
         _ = try posix.write(conn, response_get);
