@@ -43,30 +43,32 @@ fn handleConnection(conn: posix.socket_t) !void {
         std.debug.print("error read message : {?} \n", .{err});
         return err;
     };
-    var it = std.mem.splitScalar(u8, buf[0..data_received], '\n');
-    const req = it.first();
-    const header = readHeader(req);
-    std.debug.print("method : {s}\npath : {s}\nproto version : {s}\n", .{ header.method, header.path, header.protoVersion });
-}
-
-fn readHeader(req_header: []const u8) Header {
-    var it = std.mem.splitScalar(u8, req_header, ' ');
-    const method = it.first();
-    const path = it.next().?;
-    const proto_version = it.next().?;
-
-    return Header{
-        .method = method,
-        .path = path,
-        .protoVersion = proto_version,
-    };
+    var req = std.mem.splitScalar(u8, buf[0..data_received], '\n');
+    const header = Header.parseHeader(req.first());
+    _ = header;
 }
 
 const Header = struct {
     method: []const u8,
     path: []const u8,
-    protoVersion: []const u8,
+    protocolVersion: []const u8,
+
+    pub fn parseHeader(buf: []const u8) Header {
+        var first_line = std.mem.splitScalar(u8, buf, ' ');
+        const method = first_line.first();
+        const path = first_line.next().?;
+        const proto_version = first_line.next().?;
+
+        return Header{
+            .method = method,
+            .path = path,
+            .protocolVersion = proto_version,
+        };
+    }
 };
+
+// the simple http server just accept 2 method, which is get and path \
+// respoonse it method and path.
 
 // i don't know how much the number of connections will be served.
 // So,stores the heap in the stack is a bad idea.
