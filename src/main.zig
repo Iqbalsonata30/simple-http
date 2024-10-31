@@ -1,6 +1,7 @@
 const std = @import("std");
 const net = std.net;
 const posix = std.posix;
+const Allocator = std.mem.Allocator;
 
 pub fn main() !void {
     var address = try net.Address.parseIp4("127.0.0.1", 8080);
@@ -31,21 +32,39 @@ pub fn main() !void {
             continue;
         };
 
-        const thread = try std.Thread.spawn(.{}, handleConnection, .{conn});
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+
+        const allocator = arena.allocator();
+
+        const thread = try std.Thread.spawn(.{}, handleConnection, .{ conn, allocator });
         defer thread.join();
     }
 }
 
-fn handleConnection(conn: posix.socket_t) !void {
+fn handleConnection(conn: posix.socket_t, allocator: Allocator) !void {
     std.debug.print("client connected\n", .{});
     var buf: [1024]u8 = undefined;
+    const response = "<h1>Hi, Your method is GET and Path /</h1>";
+
+    const response_get = try std.fmt.allocPrint(allocator, "HTTP/1.1 200 OK\r\n" ++
+        "Content-Type: text/html\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "\r\n" ++
+        "{s}", .{ response.len, response });
+    defer allocator.free(response_get);
+
     const data_received = posix.recv(conn, &buf, 0) catch |err| {
         std.debug.print("error read message : {?} \n", .{err});
         return err;
     };
     var req = std.mem.splitScalar(u8, buf[0..data_received], '\n');
     const header = Header.parseHeader(req.first());
-    _ = header;
+    const method = header.method;
+
+    if (std.mem.eql(u8, method, "GET")) {
+        _ = try posix.write(conn, response_get);
+    }
 }
 
 const Header = struct {
